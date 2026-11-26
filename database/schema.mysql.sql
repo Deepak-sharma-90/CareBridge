@@ -1,0 +1,72 @@
+CREATE TABLE IF NOT EXISTS Clinics (
+  ClinicId INT AUTO_INCREMENT PRIMARY KEY,
+  ClinicName VARCHAR(150) NOT NULL,
+  Location VARCHAR(200) NOT NULL,
+  CreatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO Clinics (ClinicName, Location)
+SELECT 'Demo Clinic', 'Lucknow'
+WHERE NOT EXISTS (SELECT 1 FROM Clinics WHERE ClinicName = 'Demo Clinic');
+
+CREATE TABLE IF NOT EXISTS Users (
+  UserId INT AUTO_INCREMENT PRIMARY KEY,
+  FullName VARCHAR(120) NOT NULL,
+  Email VARCHAR(255) NOT NULL UNIQUE,
+  PasswordHash VARCHAR(255) NOT NULL,
+  Role VARCHAR(20) NOT NULL,
+  ClinicId INT NULL,
+  CreatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT FK_Users_Clinics FOREIGN KEY (ClinicId) REFERENCES Clinics(ClinicId)
+);
+
+CREATE TABLE IF NOT EXISTS Patients (
+  PatientId INT AUTO_INCREMENT PRIMARY KEY,
+  ClinicId INT NOT NULL,
+  FullName VARCHAR(120) NOT NULL,
+  DateOfBirth DATE NULL,
+  Sex VARCHAR(20) NULL,
+  Phone VARCHAR(30) NULL,
+  Symptoms LONGTEXT NOT NULL,
+  Temperature DECIMAL(5,2) NULL,
+  HeartRate INT NULL,
+  SystolicBP INT NULL,
+  DiastolicBP INT NULL,
+  OxygenSaturation DECIMAL(5,2) NULL,
+  TriageScore INT NOT NULL DEFAULT 0,
+  TriageLevel VARCHAR(20) NOT NULL DEFAULT 'LOW',
+  Status VARCHAR(20) NOT NULL DEFAULT 'QUEUED',
+  CreatedBy INT NOT NULL,
+  CreatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT FK_Patients_Clinics FOREIGN KEY (ClinicId) REFERENCES Clinics(ClinicId),
+  CONSTRAINT FK_Patients_Users FOREIGN KEY (CreatedBy) REFERENCES Users(UserId),
+  INDEX IX_Patients_Triage (Status, TriageScore, CreatedAt)
+);
+
+CREATE TABLE IF NOT EXISTS Consultations (
+  ConsultationId INT AUTO_INCREMENT PRIMARY KEY,
+  PatientId INT NOT NULL,
+  DoctorId INT NULL,
+  ClinicId INT NOT NULL,
+  ScheduledStart DATETIME NULL,
+  ScheduledEnd DATETIME NULL,
+  Status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+  Notes LONGTEXT NULL,
+  Prescription LONGTEXT NULL,
+  CreatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT FK_Consultations_Patients FOREIGN KEY (PatientId) REFERENCES Patients(PatientId),
+  CONSTRAINT FK_Consultations_Doctors FOREIGN KEY (DoctorId) REFERENCES Users(UserId),
+  CONSTRAINT FK_Consultations_Clinics FOREIGN KEY (ClinicId) REFERENCES Clinics(ClinicId),
+  INDEX IX_Consultations_DoctorTime (DoctorId, ScheduledStart, ScheduledEnd)
+);
+
+CREATE TABLE IF NOT EXISTS ActivityLogs (
+  LogId BIGINT AUTO_INCREMENT PRIMARY KEY,
+  UserId INT NULL,
+  Action VARCHAR(100) NOT NULL,
+  EntityType VARCHAR(50) NULL,
+  EntityId INT NULL,
+  CreatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT FK_ActivityLogs_Users FOREIGN KEY (UserId) REFERENCES Users(UserId),
+  INDEX IX_ActivityLogs_CreatedAt (CreatedAt)
+);
