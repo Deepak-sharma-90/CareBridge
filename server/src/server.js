@@ -22,7 +22,8 @@ app.post('/api/auth/register',async(req,res)=>{try{
  const {fullName,email,password,role='WORKER',clinicId}=req.body;
  if(!fullName||!email||!password)return res.status(400).json({message:'Name, email and password are required'});
  const hash=await bcrypt.hash(password,12);const p=await getPool();
- const r=await p.request().input('n',sql.NVarChar,fullName).input('e',sql.NVarChar,email.toLowerCase()).input('h',sql.NVarChar,hash).input('r',sql.NVarChar,role).input('c',sql.Int,clinicId||null).query('INSERT INTO Users(FullName,Email,PasswordHash,Role,ClinicId) OUTPUT INSERTED.UserId,INSERTED.FullName,INSERTED.Email,INSERTED.Role,INSERTED.ClinicId VALUES(@n,@e,@h,@r,@c)');
+ const assignedClinic=clinicId||(role==='WORKER'||role==='DOCTOR'?(await p.request().query('SELECT TOP 1 ClinicId FROM Clinics ORDER BY ClinicId')).recordset[0]?.ClinicId:null);
+ const r=await p.request().input('n',sql.NVarChar,fullName).input('e',sql.NVarChar,email.toLowerCase()).input('h',sql.NVarChar,hash).input('r',sql.NVarChar,role).input('c',sql.Int,assignedClinic||null).query('INSERT INTO Users(FullName,Email,PasswordHash,Role,ClinicId) OUTPUT INSERTED.UserId,INSERTED.FullName,INSERTED.Email,INSERTED.Role,INSERTED.ClinicId VALUES(@n,@e,@h,@r,@c)');
  res.status(201).json({token:signUser(r.recordset[0]),user:r.recordset[0]});
  }catch(e){res.status(400).json({message:e.message});}});
 app.post('/api/auth/login',async(req,res)=>{try{
