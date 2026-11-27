@@ -39,10 +39,18 @@ app.post('/api/patients',auth,roles('WORKER','ADMIN'),async(req,res)=>{try{
  await log(req,'CREATE_PATIENT','Patient',r.recordset[0].PatientId);res.status(201).json(r.recordset[0]);
  }catch(e){res.status(400).json({message:e.message});}});
 app.get('/api/triage',auth,roles('DOCTOR','ADMIN'),async(req,res)=>{const p=await getPool();const r=await p.request().query("SELECT p.*,c.ClinicName FROM Patients p JOIN Clinics c ON p.ClinicId=c.ClinicId WHERE p.Status='QUEUED' ORDER BY CASE p.TriageLevel WHEN 'CRITICAL' THEN 1 WHEN 'URGENT' THEN 2 ELSE 3 END,p.CreatedAt");res.json(r.recordset);});
-app.post('/api/consultations',auth,roles('DOCTOR','ADMIN'),async(req,res)=>{const {patientId,clinicId,start,end}=req.body;const p=await getPool();const tx=new sql.Transaction(p);try{
- await tx.begin();const existing=await new sql.Request(tx).input('d',sql.Int,req.user.userId).input('s',sql.DateTime2,new Date(start)).input('e',sql.DateTime2,new Date(end)).query("SELECT ConsultationId FROM Consultations WHERE DoctorId=@d AND Status IN ('PENDING','SCHEDULED') AND ScheduledStart < @e AND ScheduledEnd > @s");
- if(existing.recordset.length){await tx.rollback();return res.status(409).json({message:'Doctor has a conflicting consultation'});}
- const r=await new sql.Request(tx).input('p',sql.Int,patientId).input('d',sql.Int,req.user.userId).input('c',sql.Int,clinicId).input('s',sql.DateTime2,new Date(start)).input('e',sql.DateTime2,new Date(end)).query("INSERT INTO Consultations(PatientId,DoctorId,ClinicId,ScheduledStart,ScheduledEnd,Status) OUTPUT INSERTED.* VALUES(@p,@d,@c,@s,@e,'SCHEDULED')");
+app.get('/api/patients',auth,roles('WORKER','DOCTOR','ADMIN'),async(req,res)=>{try{
+ const p=await getPool();const q=req.user.role==='ADMIN'?'':'WHERE ClinicId=@c';const r=await p.request().input('c',sql.Int,req.user.clinicId).query(`SELECT PatientId,FullName,ClinicId,TriageLevel,Status FROM Patients ${q} ORDER BY CreatedAt DESC`);res.json(r.recordset);
+ }catch(e){res.status(500).json({message:e.message});}});
+app.post('/api/consultations',auth,roles('DOCTOR','ADMIN'),async(req,res)=>{const {patientId,start,end,notes=''}=req.body;const startDate=new Date(start),endDate=new Date(end);if(!patientId||!start||!end||Number.isNaN(startDate.getTime())||Number.isNaN(endDate.getTime())||endDate<=startDate)return res.status(400).json({message:'Select a patient and valid start/end times.'});const p=await getPool();const tx=new sql.Transaction(p);try{
+ await tx.begin();
+ const patient=await new sql.Request(tx).input('p',sql.Int,patientId).query('SELECT PatientId,ClinicId FROM Patients WHERE PatientId=@p');
+ if(!patient.recordset.length){await tx.rollback();return res.status(404).json({message:'Patient not found.'});}
+ const patientClinic=patient.recordset[0].ClinicId;
+ if(req.user.role!=='ADMIN'&&req.user.clinicId!==patientClinic){await tx.rollback();return res.status(403).json({message:'You can only schedule patients from your clinic.'});}
+ const existing=await new sql.Request(tx).input('d',sql.Int,req.user.userId).input('s',sql.DateTime2,startDate).input('e',sql.DateTime2,endDate).query("SELECT ConsultationId FROM Consultations WHERE DoctorId=@d AND Status IN ('PENDING','SCHEDULED') AND ScheduledStart < @e AND ScheduledEnd > @s");
+ if(existing.recordset.length){await tx.rollback();return res.status(409).json({message:'You already have a consultation scheduled during this time.'});}
+ const r=await new sql.Request(tx).input('p',sql.Int,patientId).input('d',sql.Int,req.user.userId).input('c',sql.Int,patientClinic).input('s',sql.DateTime2,startDate).input('e',sql.DateTime2,endDate).input('n',sql.NVarChar(sql.MAX),notes).query("INSERT INTO Consultations(PatientId,DoctorId,ClinicId,ScheduledStart,ScheduledEnd,Status,Notes) OUTPUT INSERTED.* VALUES(@p,@d,@c,@s,@e,'SCHEDULED',@n)");
  await new sql.Request(tx).input('id',sql.Int,patientId).query("UPDATE Patients SET Status='SCHEDULED' WHERE PatientId=@id");
  await tx.commit();await log(req,'SCHEDULE_CONSULTATION','Consultation',r.recordset[0].ConsultationId);res.status(201).json(r.recordset[0]);
  }catch(e){try{await tx.rollback()}catch{}res.status(400).json({message:e.message});}});
